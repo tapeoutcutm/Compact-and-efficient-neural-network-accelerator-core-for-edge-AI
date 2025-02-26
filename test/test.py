@@ -20,16 +20,9 @@ def load_expected_vectors(expected_vector_filename):
 
     return expected_vectors
 
-@cocotb.test()
-async def test_project(dut):
-    test_vectors = load_test_vectors("test_vec.hex")
-    expected_vectors = load_expected_vectors("expected.hex")
-
-    dut._log.info("Start")
-
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, units="us")
-    cocotb.start_soon(clock.start())
+async def run_test(dut, vector_file, expected_file):
+    test_vectors = load_test_vectors(vector_file)
+    expected_vectors = load_expected_vectors(expected_file)
 
     # Reset
     dut._log.info("Reset")
@@ -53,3 +46,23 @@ async def test_project(dut):
             assert dut.uo_out.value == expected_vectors[i], \
                 f"Expected output {i} to be {expected_vectors[i]:02x} " \
                 f"saw {dut.uo_out.value}"
+
+@cocotb.test()
+async def test_convolve(dut):
+    dut._log.info("Start")
+
+    # Set the clock period to 10 us (100 KHz)
+    clock = Clock(dut.clk, 10, units="us")
+    cocotb.start_soon(clock.start())
+
+    await run_test(dut, "test_convolve.hex", "test_convolve_expected.hex")
+
+@cocotb.test()
+async def test_accum(dut):
+    dut._log.info("Start")
+
+    # Set the clock period to 10 us (100 KHz)
+    clock = Clock(dut.clk, 10, units="us")
+    cocotb.start_soon(clock.start())
+
+    await run_test(dut, "test_accum.hex", "test_accum_expected.hex")
