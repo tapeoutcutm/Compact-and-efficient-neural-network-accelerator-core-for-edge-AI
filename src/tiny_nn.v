@@ -295,9 +295,14 @@ module tiny_nn_core (
 	mul_en_i,
 	accumulate_loopback_i,
 	accumulate_out_relu_i,
-	accumulate_level_1_direct_din_i,
-	accumulate_level_1_direct_en_i,
-	accumulate_en_i,
+	mul_add_op_a_din_i,
+	mul_add_op_b_din_i,
+	mul_add_op_a_en_i,
+	mul_add_op_b_en_i,
+	accumulate_level_0_din_i,
+	accumulate_level_0_en_i,
+	accumulate_mode_0_en_i,
+	accumulate_mode_1_en_i,
 	accumulate_o
 );
 	reg _sv2v_0;
@@ -315,9 +320,14 @@ module tiny_nn_core (
 	input wire mul_en_i;
 	input wire accumulate_loopback_i;
 	input wire accumulate_out_relu_i;
-	input wire [15:0] accumulate_level_1_direct_din_i;
-	input [ValArrayHeight - 1:0] accumulate_level_1_direct_en_i;
-	input wire [1:0] accumulate_en_i;
+	input wire [15:0] mul_add_op_a_din_i;
+	input wire [15:0] mul_add_op_b_din_i;
+	input wire mul_add_op_a_en_i;
+	input wire mul_add_op_b_en_i;
+	input wire [15:0] accumulate_level_0_din_i;
+	input accumulate_level_0_en_i;
+	input wire [1:0] accumulate_mode_0_en_i;
+	input wire [1:0] accumulate_mode_1_en_i;
 	output wire [15:0] accumulate_o;
 	reg [15:0] mul_val_op_q [0:ValArrayWidth - 1][0:ValArrayHeight - 1];
 	reg [15:0] param_val_op_q [0:ValArrayWidth - 1][0:ValArrayHeight - 1];
@@ -346,8 +356,7 @@ module tiny_nn_core (
 	endgenerate
 	wire [15:0] mul_op_a [0:ValArrayWidth - 1];
 	wire [15:0] mul_op_b [0:ValArrayWidth - 1];
-	wire [15:0] mul_result_d [0:ValArrayWidth - 1];
-	reg [15:0] mul_result_q [0:ValArrayWidth - 1];
+	wire [15:0] mul_result [0:ValArrayWidth - 1];
 	genvar _gv_x_2;
 	generate
 		for (_gv_x_2 = 0; _gv_x_2 < ValArrayWidth; _gv_x_2 = _gv_x_2 + 1) begin : genblk2
@@ -357,32 +366,65 @@ module tiny_nn_core (
 			fp_mul u_mul(
 				.op_a_i(mul_op_a[x]),
 				.op_b_i(mul_op_b[x]),
-				.result_o(mul_result_d[x])
+				.result_o(mul_result[x])
 			);
-			always @(posedge clk_i)
-				if (mul_en_i)
-					mul_result_q[x] <= mul_result_d[x];
 		end
 	endgenerate
+	wire [(ValArrayWidth / 2) - 1:0] mul_add_op_a_en;
+	wire [(ValArrayWidth / 2) - 1:0] mul_add_op_b_en;
+	reg [15:0] mul_add_op_a_q [0:(ValArrayWidth / 2) - 1];
+	wire [15:0] mul_add_op_a_d [0:(ValArrayWidth / 2) - 1];
+	reg [15:0] mul_add_op_b_q [0:(ValArrayWidth / 2) - 1];
+	wire [15:0] mul_add_op_b_d [0:(ValArrayWidth / 2) - 1];
+	wire [15:0] mul_add_op_a [0:(ValArrayWidth / 2) - 1];
+	wire [15:0] mul_add_result [0:(ValArrayWidth / 2) - 1];
+	wire [(ValArrayWidth / 2) - 1:0] accumulate_level_0_en;
 	reg [15:0] accumulate_level_0_q [0:(ValArrayWidth / 2) - 1];
 	wire [15:0] accumulate_level_0_d [0:(ValArrayWidth / 2) - 1];
 	genvar _gv_x_3;
 	generate
 		for (_gv_x_3 = 0; _gv_x_3 < (ValArrayWidth / 2); _gv_x_3 = _gv_x_3 + 1) begin : g_accumulate_level_0_inner
 			localparam x = _gv_x_3;
-			fp_add u_add(
-				.op_a_i(mul_result_q[x * 2]),
-				.op_b_i(mul_result_q[(x * 2) + 1]),
-				.result_o(accumulate_level_0_d[x])
-			);
+			if (x == 1) begin : genblk1
+				assign mul_add_op_a_d[x] = (mul_add_op_a_en_i ? mul_add_op_a_din_i : mul_result[x * 2]);
+				assign mul_add_op_b_d[x] = (mul_add_op_b_en_i ? mul_add_op_b_din_i : mul_result[(x * 2) + 1]);
+				assign mul_add_op_a_en[x] = mul_en_i | mul_add_op_a_en_i;
+				assign mul_add_op_b_en[x] = mul_en_i | mul_add_op_b_en_i;
+				assign mul_add_op_a[x] = (accumulate_loopback_i ? accumulate_level_0_q[x] : mul_add_op_a_q[x]);
+			end
+			else begin : genblk1
+				assign mul_add_op_a_d[x] = mul_result[x * 2];
+				assign mul_add_op_b_d[x] = mul_result[(x * 2) + 1];
+				assign mul_add_op_a_en[x] = mul_en_i;
+				assign mul_add_op_b_en[x] = mul_en_i;
+				assign mul_add_op_a[x] = mul_add_op_a_q[x];
+			end
 			always @(posedge clk_i)
-				if (accumulate_en_i[0])
+				if (mul_add_op_a_en[x])
+					mul_add_op_a_q[x] <= mul_add_op_a_d[x];
+			always @(posedge clk_i)
+				if (mul_add_op_b_en[x])
+					mul_add_op_b_q[x] <= mul_add_op_b_d[x];
+			fp_add u_add(
+				.op_a_i(mul_add_op_a[x]),
+				.op_b_i(mul_add_op_b_q[x]),
+				.result_o(mul_add_result[x])
+			);
+			if (x == 0) begin : genblk2
+				assign accumulate_level_0_en[x] = accumulate_level_0_en_i | accumulate_mode_0_en_i[0];
+				assign accumulate_level_0_d[x] = (accumulate_level_0_en_i ? accumulate_level_0_din_i : mul_add_result[x]);
+			end
+			else begin : genblk2
+				assign accumulate_level_0_en[x] = accumulate_mode_1_en_i[0] | accumulate_mode_0_en_i[0];
+				assign accumulate_level_0_d[x] = mul_add_result[x];
+			end
+			always @(posedge clk_i)
+				if (accumulate_level_0_en[x])
 					accumulate_level_0_q[x] <= accumulate_level_0_d[x];
 		end
 	endgenerate
 	wire [15:0] accumulate_level_0_result;
 	reg [15:0] accumulate_level_1_q [0:ValArrayHeight - 1];
-	wire [15:0] accumulate_level_1_d [0:ValArrayHeight - 1];
 	wire [ValArrayHeight - 1:0] accumulate_level_1_en;
 	fp_add u_add(
 		.op_a_i(accumulate_level_0_q[0]),
@@ -393,31 +435,19 @@ module tiny_nn_core (
 	generate
 		for (_gv_y_2 = 0; _gv_y_2 < ValArrayHeight; _gv_y_2 = _gv_y_2 + 1) begin : genblk4
 			localparam y = _gv_y_2;
-			assign accumulate_level_1_en[y] = (accumulate_en_i[0] & (mul_row_sel_i == y)) | accumulate_level_1_direct_en_i[y];
-			assign accumulate_level_1_d[y] = (accumulate_level_1_direct_en_i[y] ? accumulate_level_1_direct_din_i : accumulate_level_0_result);
+			assign accumulate_level_1_en[y] = accumulate_mode_0_en_i[0] & (mul_row_sel_i == y);
 			always @(posedge clk_i)
 				if (accumulate_level_1_en[y])
-					accumulate_level_1_q[y] <= accumulate_level_1_d[y];
+					accumulate_level_1_q[y] <= accumulate_level_0_result;
 		end
 	endgenerate
-	reg [15:0] accumulate_final_op_a;
-	reg [15:0] accumulate_final_op_b;
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		accumulate_final_op_a = accumulate_level_1_q[0];
-	end
 	reg [15:0] accumulate_final_q;
-	always @(*) begin
-		if (_sv2v_0)
-			;
-		accumulate_final_op_b = (accumulate_loopback_i ? accumulate_final_q : accumulate_level_1_q[1]);
-	end
 	reg [15:0] accumulate_final_d;
 	wire [15:0] accumulate_final_result;
+	wire accumulate_final_en;
 	fp_add u_add_accumulate_final(
-		.op_a_i(accumulate_final_op_a),
-		.op_b_i(accumulate_final_op_b),
+		.op_a_i(accumulate_level_1_q[0]),
+		.op_b_i(accumulate_level_1_q[1]),
 		.result_o(accumulate_final_result)
 	);
 	function automatic [7:0] sv2v_cast_F6E28;
@@ -432,12 +462,18 @@ module tiny_nn_core (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		accumulate_final_d = accumulate_final_result;
-		if (accumulate_out_relu_i && accumulate_final_result[15])
-			accumulate_final_d = tiny_nn_pkg_FPZero;
+		if (accumulate_mode_1_en_i[1]) begin
+			if (accumulate_out_relu_i && accumulate_level_0_result[15])
+				accumulate_final_d = tiny_nn_pkg_FPZero;
+			else
+				accumulate_final_d = accumulate_level_0_result;
+		end
+		else
+			accumulate_final_d = accumulate_final_result;
 	end
+	assign accumulate_final_en = accumulate_mode_0_en_i[1] | accumulate_mode_1_en_i[1];
 	always @(posedge clk_i)
-		if (accumulate_en_i[1])
+		if (accumulate_final_en)
 			accumulate_final_q <= accumulate_final_d;
 	assign accumulate_o = accumulate_final_q;
 	initial _sv2v_0 = 0;
@@ -449,7 +485,6 @@ module tiny_nn_top (
 	data_o
 );
 	reg _sv2v_0;
-	parameter [31:0] CountWidth = 8;
 	parameter [31:0] ValArrayWidth = 4;
 	parameter [31:0] ValArrayHeight = 2;
 	input clk_i;
@@ -457,28 +492,37 @@ module tiny_nn_top (
 	input wire [15:0] data_i;
 	output reg [7:0] data_o;
 	localparam [31:0] ValArraySize = ValArrayWidth * ValArrayHeight;
+	localparam [31:0] CountWidth = 8;
 	reg phase_q;
 	reg phase_d;
-	reg [CountWidth - 1:0] counter_q;
-	reg [CountWidth - 1:0] counter_d;
-	reg [CountWidth - 1:0] start_count_q;
-	reg [CountWidth - 1:0] start_count_d;
+	reg [7:0] counter_q;
+	reg [7:0] counter_d;
+	reg [7:0] start_count_q;
+	reg [7:0] start_count_d;
 	reg [ValArraySize - 1:0] param_write_q;
 	reg [ValArraySize - 1:0] param_write_d;
 	reg relu_q;
 	reg relu_d;
 	reg convolve_run;
-	reg accumulate_run;
-	reg core_result_skid_en;
-	reg accumulate_loopback;
-	reg accumulate_out_relu;
-	reg [1:0] accumulate_level_1_direct_en;
+	reg [ValArrayHeight - 1:0] core_val_shift;
+	reg core_mul_row_sel;
+	reg core_mul_en;
+	localparam tiny_nn_pkg_FPExpWidth = 8;
+	localparam tiny_nn_pkg_FPMantWidth = 7;
+	wire [15:0] core_accumulate_result;
+	reg core_mul_add_op_a_en;
+	reg core_mul_add_op_b_en;
+	reg [1:0] core_accumulate_mode_0_en;
+	reg [1:0] core_accumulate_mode_1_en;
+	reg core_accumulate_loopback;
+	reg core_accumulate_out_relu;
+	reg core_accumulate_level_0_en;
 	reg [3:0] state_q;
 	reg [3:0] state_d;
 	localparam [3:0] tiny_nn_pkg_CmdOpAccumulate = 4'h2;
 	localparam [3:0] tiny_nn_pkg_CmdOpConvolve = 4'h1;
-	localparam tiny_nn_pkg_FPExpWidth = 8;
-	localparam tiny_nn_pkg_FPMantWidth = 7;
+	localparam [3:0] tiny_nn_pkg_CmdOpMulAcc = 4'h3;
+	localparam [3:0] tiny_nn_pkg_CmdOpTest = 4'hf;
 	function automatic [7:0] sv2v_cast_6BBDD;
 		input reg [7:0] inp;
 		sv2v_cast_6BBDD = inp;
@@ -488,9 +532,9 @@ module tiny_nn_top (
 		sv2v_cast_EE239 = inp;
 	endfunction
 	localparam [15:0] tiny_nn_pkg_FPStdNaN = {1'b1, sv2v_cast_6BBDD(1'sb1), sv2v_cast_EE239(1'sb1)};
-	function automatic [CountWidth - 1:0] sv2v_cast_8BE2F;
-		input reg [CountWidth - 1:0] inp;
-		sv2v_cast_8BE2F = inp;
+	function automatic [7:0] sv2v_cast_C2D44;
+		input reg [7:0] inp;
+		sv2v_cast_C2D44 = inp;
 	endfunction
 	always @(*) begin
 		if (_sv2v_0)
@@ -501,82 +545,181 @@ module tiny_nn_top (
 		phase_d = 1'b0;
 		param_write_d = param_write_q;
 		convolve_run = 1'b0;
-		accumulate_run = 1'b0;
 		relu_d = relu_q;
-		accumulate_loopback = 1'b0;
-		accumulate_out_relu = 1'b0;
-		core_result_skid_en = 1'b0;
-		accumulate_level_1_direct_en = 1'sb0;
+		core_val_shift = 1'sb0;
+		core_mul_row_sel = 1'b0;
+		core_mul_en = 1'b0;
+		core_mul_add_op_a_en = 1'b0;
+		core_mul_add_op_b_en = 1'b0;
+		core_accumulate_mode_0_en = 1'sb0;
+		core_accumulate_mode_1_en = 1'sb0;
+		core_accumulate_loopback = 1'b0;
+		core_accumulate_out_relu = 1'b0;
+		core_accumulate_level_0_en = 1'b0;
 		case (state_q)
-			4'd0:
+			4'h0:
 				case (data_i[15:12])
 					tiny_nn_pkg_CmdOpConvolve: begin
-						state_d = 4'd1;
+						state_d = 4'h1;
 						param_write_d = 1'sb0;
 						param_write_d[0] = 1'b1;
 					end
 					tiny_nn_pkg_CmdOpAccumulate: begin
-						start_count_d = data_i[CountWidth - 1:0];
-						counter_d = sv2v_cast_8BE2F(1'b1);
-						state_d = 4'd4;
+						start_count_d = data_i[7:0];
+						counter_d = sv2v_cast_C2D44(1'b1);
+						state_d = 4'h4;
 						relu_d = data_i[8];
+					end
+					tiny_nn_pkg_CmdOpTest:
+						case (data_i[11:8])
+							4'hf: begin
+								state_d = 4'hf;
+								counter_d = 8'd3;
+							end
+							4'h1: begin
+								state_d = 4'hd;
+								counter_d = data_i[7:0];
+							end
+							4'h0: begin
+								state_d = 4'he;
+								counter_d = 8'd1;
+							end
+							default:
+								;
+						endcase
+					tiny_nn_pkg_CmdOpMulAcc: begin
+						state_d = 4'h7;
+						relu_d = data_i[8];
+						phase_d = 1'b0;
+						counter_d = sv2v_cast_C2D44(2'd3);
 					end
 					default:
 						;
 				endcase
-			4'd1:
+			4'h1:
 				if (param_write_q[ValArraySize - 1]) begin
 					param_write_d = 1'sb0;
-					state_d = 4'd2;
+					state_d = 4'h2;
 				end
 				else
 					param_write_d = {param_write_q[ValArraySize - 2:0], 1'b0};
-			4'd2, 4'd3: begin
+			4'h2, 4'h3: begin
 				phase_d = ~phase_q;
 				convolve_run = 1'b1;
-				if (state_q == 4'd2) begin
+				core_val_shift[0] = ~phase_q;
+				core_val_shift[1] = phase_q;
+				core_mul_row_sel = phase_q;
+				core_mul_en = 1'b1;
+				core_accumulate_mode_0_en[0] = 1'b1;
+				core_accumulate_mode_0_en[1] = phase_q;
+				if (state_q == 4'h2) begin
 					if (data_i == tiny_nn_pkg_FPStdNaN) begin
-						state_d = 4'd3;
+						state_d = 4'h3;
 						counter_d = 8'd4;
 					end
 				end
-				else if (counter_q != {CountWidth {1'sb0}})
+				else if (counter_q != {8 {1'sb0}})
 					counter_d = counter_q - 1'b1;
 				else
-					state_d = 4'd0;
+					state_d = 4'h0;
 			end
-			4'd4: begin
-				accumulate_level_1_direct_en[1] = 1'b1;
-				state_d = 4'd5;
+			4'h4: begin
+				core_accumulate_level_0_en = 1'b1;
+				state_d = 4'h5;
 			end
-			4'd5: begin
-				accumulate_run = 1'b1;
-				accumulate_level_1_direct_en[0] = 1'b1;
-				if (counter_q == {CountWidth {1'sb0}}) begin
+			4'h5: begin
+				core_accumulate_mode_1_en[0] = 1'b1;
+				core_accumulate_out_relu = relu_q;
+				core_mul_add_op_b_en = 1'b1;
+				if (counter_q == {8 {1'sb0}}) begin
+					core_accumulate_mode_1_en[1] = 1'b1;
+					core_accumulate_loopback = 1'b0;
 					counter_d = start_count_q;
-					core_result_skid_en = 1'b1;
 				end
 				else begin
-					if (counter_q == sv2v_cast_8BE2F(1'b1))
-						accumulate_out_relu = relu_q;
-					accumulate_loopback = 1'b1;
+					if (counter_q == sv2v_cast_C2D44(1'b1))
+						core_mul_add_op_a_en = 1'b1;
+					core_accumulate_loopback = 1'b1;
 					counter_d = counter_q - 1'b1;
-					if (data_i == tiny_nn_pkg_FPStdNaN)
-						state_d = 4'd6;
+					if (data_i == tiny_nn_pkg_FPStdNaN) begin
+						state_d = 4'h6;
+						counter_d = 8'd2;
+					end
 				end
 			end
-			4'd6: begin
-				core_result_skid_en = 1'b1;
-				state_d = 4'd7;
+			4'h6: begin
+				core_accumulate_out_relu = relu_q;
+				if (counter_q == 8'd2)
+					core_accumulate_mode_1_en[1] = 1'b1;
+				else if (counter_q == {8 {1'sb0}})
+					state_d = 4'h0;
+				counter_d = counter_q - 1'b1;
 			end
-			4'd7: state_d = 4'd0;
+			4'h7: begin
+				core_accumulate_level_0_en = 1'b1;
+				core_mul_add_op_a_en = 1'b1;
+				state_d = 4'h8;
+			end
+			4'h8: begin
+				phase_d = ~phase_q;
+				core_mul_row_sel = 1'b1;
+				if (phase_q) begin
+					core_val_shift[0] = 1'b0;
+					param_write_d[6] = 1'b0;
+					core_accumulate_mode_1_en[0] = 1'b1;
+					core_accumulate_loopback = counter_q == {8 {1'sb0}};
+				end
+				else begin
+					core_val_shift[0] = 1'b1;
+					param_write_d[6] = 1'b1;
+					core_mul_en = counter_q != sv2v_cast_C2D44(2'd3);
+					if (counter_q != {8 {1'sb0}})
+						counter_d = counter_q - 1'b1;
+					if (data_i == tiny_nn_pkg_FPStdNaN) begin
+						state_d = 4'h9;
+						counter_d = 8'd3;
+					end
+				end
+			end
+			4'h9: begin
+				if (counter_q == 8'd3) begin
+					core_accumulate_loopback = 1'b1;
+					core_accumulate_mode_1_en[0] = 1'b1;
+				end
+				else if (counter_q == 8'd2) begin
+					core_accumulate_mode_1_en[1] = 1'b1;
+					core_accumulate_out_relu = relu_q;
+				end
+				else if (counter_q == {8 {1'sb0}})
+					state_d = 4'h0;
+				counter_d = counter_q - 1'b1;
+			end
+			4'hf:
+				if (data_i[15:8] == 8'hff) begin
+					if (counter_q == 0)
+						counter_d = 8'd3;
+					else
+						counter_d = counter_q - 1'b1;
+				end
+				else
+					state_d = 4'h0;
+			4'he:
+				if (data_i[15:8] == 8'hf0)
+					counter_d = counter_q - 1'b1;
+				else
+					state_d = 4'h0;
+			4'hd:
+				if (counter_q == {8 {1'sb0}})
+					state_d = 4'h0;
+				else
+					counter_d = counter_q - 1'b1;
 			default:
 				;
 		endcase
 	end
 	always @(posedge clk_i or negedge rst_ni)
 		if (!rst_ni)
-			state_q <= 4'd0;
+			state_q <= 4'h0;
 		else
 			state_q <= state_d;
 	always @(posedge clk_i) begin
@@ -586,24 +729,13 @@ module tiny_nn_top (
 		param_write_q <= param_write_d;
 		relu_q <= relu_d;
 	end
-	wire [ValArrayHeight - 1:0] core_val_shift;
-	wire core_mul_row_sel;
-	wire core_mul_en;
-	wire [1:0] core_accumulate_en;
-	wire [15:0] core_accumulate_result;
-	reg [7:0] core_result_skid_q;
-	wire [15:0] accumulate_level_1_direct_din;
-	assign core_val_shift[0] = ~phase_q & convolve_run;
-	assign core_val_shift[1] = phase_q & convolve_run;
-	assign core_mul_row_sel = phase_q;
-	assign core_mul_en = convolve_run;
-	assign core_accumulate_en[0] = convolve_run;
-	assign core_accumulate_en[1] = (phase_q & convolve_run) | accumulate_run;
-	assign accumulate_level_1_direct_din = data_i;
 	function automatic [15:0] sv2v_cast_0825D;
 		input reg [15:0] inp;
 		sv2v_cast_0825D = inp;
 	endfunction
+	localparam sv2v_uu_u_core_tiny_nn_pkg_FPExpWidth = 8;
+	localparam sv2v_uu_u_core_tiny_nn_pkg_FPMantWidth = 7;
+	localparam [15:0] sv2v_uu_u_core_ext_mul_add_op_a_din_i_0 = 1'sb0;
 	tiny_nn_core #(
 		.ValArrayWidth(ValArrayWidth),
 		.ValArrayHeight(ValArrayHeight)
@@ -616,29 +748,51 @@ module tiny_nn_top (
 		.param_write_i(param_write_q),
 		.mul_row_sel_i(core_mul_row_sel),
 		.mul_en_i(core_mul_en),
-		.accumulate_loopback_i(accumulate_loopback),
-		.accumulate_out_relu_i(accumulate_out_relu),
-		.accumulate_level_1_direct_din_i(accumulate_level_1_direct_din),
-		.accumulate_level_1_direct_en_i(accumulate_level_1_direct_en),
-		.accumulate_en_i(core_accumulate_en),
+		.accumulate_loopback_i(core_accumulate_loopback),
+		.accumulate_out_relu_i(core_accumulate_out_relu),
+		.mul_add_op_a_din_i(sv2v_uu_u_core_ext_mul_add_op_a_din_i_0),
+		.mul_add_op_b_din_i(sv2v_cast_0825D(data_i)),
+		.mul_add_op_a_en_i(core_mul_add_op_a_en),
+		.mul_add_op_b_en_i(core_mul_add_op_b_en),
+		.accumulate_level_0_din_i(sv2v_cast_0825D(data_i)),
+		.accumulate_level_0_en_i(core_accumulate_level_0_en),
+		.accumulate_mode_0_en_i(core_accumulate_mode_0_en),
+		.accumulate_mode_1_en_i(core_accumulate_mode_1_en),
 		.accumulate_o(core_accumulate_result)
 	);
-	always @(posedge clk_i)
-		if (core_result_skid_en)
-			core_result_skid_q <= core_accumulate_result[15:8];
+	reg [7:0] test_out;
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		test_out = 1'sb0;
+		case (state_q)
+			4'hf:
+				case (counter_q)
+					8'd3: test_out = 8'h54;
+					8'd2: test_out = 8'h2d;
+					8'd0, 8'd1: test_out = 8'h4e;
+					default: test_out = 1'sb0;
+				endcase
+			4'he: test_out = (counter_q[0] ? 8'b10101010 : 8'b01010101);
+			4'hd: test_out = counter_q;
+			default:
+				;
+		endcase
+	end
 	always @(*) begin
 		if (_sv2v_0)
 			;
 		data_o = 1'sb1;
 		case (state_q)
-			4'd2, 4'd3: data_o = (phase_q ? core_accumulate_result[15:8] : core_accumulate_result[7:0]);
-			4'd5:
-				if (counter_q == {CountWidth {1'sb0}})
+			4'h2, 4'h3: data_o = (phase_q ? core_accumulate_result[15:8] : core_accumulate_result[7:0]);
+			4'h5:
+				if (counter_q == start_count_q)
 					data_o = core_accumulate_result[7:0];
 				else
-					data_o = core_result_skid_q;
-			4'd6: data_o = core_accumulate_result[7:0];
-			4'd7: data_o = core_result_skid_q;
+					data_o = core_accumulate_result[15:8];
+			4'h6: data_o = (counter_q[0] ? core_accumulate_result[7:0] : core_accumulate_result[15:8]);
+			4'h9: data_o = (counter_q[0] ? core_accumulate_result[7:0] : core_accumulate_result[15:8]);
+			4'hf, 4'he, 4'hd: data_o = test_out;
 			default:
 				;
 		endcase
