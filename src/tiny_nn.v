@@ -284,6 +284,81 @@ module fp_mul (
 	end
 	initial _sv2v_0 = 0;
 endmodule
+module fp_cmp (
+	op_a_i,
+	op_b_i,
+	op_a_greater_o,
+	invalid_nan_o
+);
+	reg _sv2v_0;
+	localparam tiny_nn_pkg_FPExpWidth = 8;
+	localparam tiny_nn_pkg_FPMantWidth = 7;
+	input wire [15:0] op_a_i;
+	input wire [15:0] op_b_i;
+	output reg op_a_greater_o;
+	output reg invalid_nan_o;
+	function automatic [7:0] sv2v_cast_56368;
+		input reg [7:0] inp;
+		sv2v_cast_56368 = inp;
+	endfunction
+	function automatic [6:0] sv2v_cast_0AB16;
+		input reg [6:0] inp;
+		sv2v_cast_0AB16 = inp;
+	endfunction
+	localparam [15:0] tiny_nn_pkg_FPZero = {1'b0, sv2v_cast_56368(1'sb0), sv2v_cast_0AB16(1'sb0)};
+	localparam [15:0] tiny_nn_pkg_FPNegInf = {1'b1, sv2v_cast_56368(1'sb1), sv2v_cast_0AB16(1'sb0)};
+	localparam [15:0] tiny_nn_pkg_FPPosInf = {1'b0, sv2v_cast_56368(1'sb1), sv2v_cast_0AB16(1'sb0)};
+	function tiny_nn_pkg_is_inf;
+		input reg [15:0] x;
+		tiny_nn_pkg_is_inf = (x == tiny_nn_pkg_FPPosInf) || (x == tiny_nn_pkg_FPNegInf);
+	endfunction
+	function tiny_nn_pkg_is_nan;
+		input reg [15:0] x;
+		if (x[14-:8] == {8 {1'sb0}}) begin
+			if (x[6-:tiny_nn_pkg_FPMantWidth] != {7 {1'sb0}})
+				tiny_nn_pkg_is_nan = 1'b1;
+			else if (x[15] == 1'b1)
+				tiny_nn_pkg_is_nan = 1'b1;
+			else
+				tiny_nn_pkg_is_nan = 1'b0;
+		end
+		else if (x[14-:8] == {8 {1'sb1}}) begin
+			if (x[6-:tiny_nn_pkg_FPMantWidth] != {7 {1'sb0}})
+				tiny_nn_pkg_is_nan = 1'b1;
+			else
+				tiny_nn_pkg_is_nan = 1'b0;
+		end
+		else
+			tiny_nn_pkg_is_nan = 1'b0;
+	endfunction
+	always @(*) begin
+		if (_sv2v_0)
+			;
+		op_a_greater_o = 1'b0;
+		invalid_nan_o = 1'b0;
+		if (tiny_nn_pkg_is_nan(op_a_i) || tiny_nn_pkg_is_nan(op_b_i))
+			invalid_nan_o = 1'b1;
+		else if (op_a_i == op_b_i)
+			op_a_greater_o = 1'b0;
+		else if (tiny_nn_pkg_is_inf(op_a_i))
+			op_a_greater_o = (op_a_i[15] ? 1'b0 : 1'b1);
+		else if (tiny_nn_pkg_is_inf(op_b_i))
+			op_a_greater_o = (op_b_i[15] ? 1'b1 : 1'b0);
+		else if (op_a_i == tiny_nn_pkg_FPZero)
+			op_a_greater_o = (op_b_i[15] ? 1'b1 : 1'b0);
+		else if (op_b_i == tiny_nn_pkg_FPZero)
+			op_a_greater_o = (op_a_i[15] ? 1'b0 : 1'b1);
+		else if (op_a_i[15] != op_b_i[15])
+			op_a_greater_o = (op_a_i[15] ? 1'b0 : 1'b1);
+		else if (op_a_i[14-:8] > op_b_i[14-:8])
+			op_a_greater_o = (op_a_i[15] ? 1'b0 : 1'b1);
+		else if (op_a_i[14-:8] < op_b_i[14-:8])
+			op_a_greater_o = (op_a_i[15] ? 1'b1 : 1'b0);
+		else if (op_a_i[6-:tiny_nn_pkg_FPMantWidth] > op_b_i[6-:tiny_nn_pkg_FPMantWidth])
+			op_a_greater_o = (op_a_i[15] ? 1'b0 : 1'b1);
+	end
+	initial _sv2v_0 = 0;
+endmodule
 module tiny_nn_core (
 	clk_i,
 	rst_ni,
@@ -303,6 +378,7 @@ module tiny_nn_core (
 	accumulate_level_0_en_i,
 	accumulate_mode_0_en_i,
 	accumulate_mode_1_en_i,
+	accumulate_mode_2_en_i,
 	accumulate_o
 );
 	reg _sv2v_0;
@@ -328,6 +404,7 @@ module tiny_nn_core (
 	input accumulate_level_0_en_i;
 	input wire [1:0] accumulate_mode_0_en_i;
 	input wire [1:0] accumulate_mode_1_en_i;
+	input wire [1:0] accumulate_mode_2_en_i;
 	output wire [15:0] accumulate_o;
 	reg [15:0] mul_val_op_q [0:ValArrayWidth - 1][0:ValArrayHeight - 1];
 	reg [15:0] param_val_op_q [0:ValArrayWidth - 1][0:ValArrayHeight - 1];
@@ -415,7 +492,7 @@ module tiny_nn_core (
 				assign accumulate_level_0_d[x] = (accumulate_level_0_en_i ? accumulate_level_0_din_i : mul_add_result[x]);
 			end
 			else begin : genblk2
-				assign accumulate_level_0_en[x] = accumulate_mode_1_en_i[0] | accumulate_mode_0_en_i[0];
+				assign accumulate_level_0_en[x] = (accumulate_mode_2_en_i[0] | accumulate_mode_1_en_i[0]) | accumulate_mode_0_en_i[0];
 				assign accumulate_level_0_d[x] = mul_add_result[x];
 			end
 			always @(posedge clk_i)
@@ -468,10 +545,12 @@ module tiny_nn_core (
 			else
 				accumulate_final_d = accumulate_level_0_result;
 		end
+		else if (accumulate_mode_2_en_i[1])
+			accumulate_final_d = mul_add_result[1];
 		else
 			accumulate_final_d = accumulate_final_result;
 	end
-	assign accumulate_final_en = accumulate_mode_0_en_i[1] | accumulate_mode_1_en_i[1];
+	assign accumulate_final_en = (accumulate_mode_0_en_i[1] | accumulate_mode_1_en_i[1]) | accumulate_mode_2_en_i[1];
 	always @(posedge clk_i)
 		if (accumulate_final_en)
 			accumulate_final_q <= accumulate_final_d;
@@ -490,7 +569,7 @@ module tiny_nn_top (
 	input clk_i;
 	input rst_ni;
 	input wire [15:0] data_i;
-	output reg [7:0] data_o;
+	output wire [7:0] data_o;
 	localparam [31:0] ValArraySize = ValArrayWidth * ValArrayHeight;
 	localparam [31:0] CountWidth = 8;
 	reg phase_q;
@@ -504,23 +583,39 @@ module tiny_nn_top (
 	reg relu_q;
 	reg relu_d;
 	reg convolve_run;
+	localparam tiny_nn_pkg_FPExpWidth = 8;
+	localparam tiny_nn_pkg_FPMantWidth = 7;
+	reg [15:0] max_val_q;
+	reg [15:0] max_val_d;
+	reg [7:0] max_val_skid_q;
+	reg [7:0] max_val_skid_d;
 	reg [ValArrayHeight - 1:0] core_val_shift;
 	reg core_mul_row_sel;
 	reg core_mul_en;
-	localparam tiny_nn_pkg_FPExpWidth = 8;
-	localparam tiny_nn_pkg_FPMantWidth = 7;
 	wire [15:0] core_accumulate_result;
 	reg core_mul_add_op_a_en;
 	reg core_mul_add_op_b_en;
 	reg [1:0] core_accumulate_mode_0_en;
 	reg [1:0] core_accumulate_mode_1_en;
+	reg [1:0] core_accumulate_mode_2_en;
 	reg core_accumulate_loopback;
 	reg core_accumulate_out_relu;
 	reg core_accumulate_level_0_en;
-	reg [3:0] state_q;
-	reg [3:0] state_d;
+	wire data_i_q_is_greater;
+	reg [15:0] data_i_q;
+	reg [7:0] data_o_d;
+	reg [7:0] data_o_q;
+	reg [4:0] state_q;
+	reg [4:0] state_d;
+	always @(posedge clk_i or negedge rst_ni)
+		if (!rst_ni)
+			data_i_q <= 1'sb0;
+		else
+			data_i_q <= data_i;
 	localparam [3:0] tiny_nn_pkg_CmdOpAccumulate = 4'h2;
 	localparam [3:0] tiny_nn_pkg_CmdOpConvolve = 4'h1;
+	localparam [3:0] tiny_nn_pkg_CmdOpFixedMulAcc = 4'h4;
+	localparam [3:0] tiny_nn_pkg_CmdOpMaxPool = 4'h5;
 	localparam [3:0] tiny_nn_pkg_CmdOpMulAcc = 4'h3;
 	localparam [3:0] tiny_nn_pkg_CmdOpTest = 4'hf;
 	function automatic [7:0] sv2v_cast_6BBDD;
@@ -531,6 +626,7 @@ module tiny_nn_top (
 		input reg [6:0] inp;
 		sv2v_cast_EE239 = inp;
 	endfunction
+	localparam [15:0] tiny_nn_pkg_FPNegInf = {1'b1, sv2v_cast_6BBDD(1'sb1), sv2v_cast_EE239(1'sb0)};
 	localparam [15:0] tiny_nn_pkg_FPStdNaN = {1'b1, sv2v_cast_6BBDD(1'sb1), sv2v_cast_EE239(1'sb1)};
 	function automatic [7:0] sv2v_cast_C2D44;
 		input reg [7:0] inp;
@@ -546,6 +642,7 @@ module tiny_nn_top (
 		param_write_d = param_write_q;
 		convolve_run = 1'b0;
 		relu_d = relu_q;
+		max_val_d = max_val_q;
 		core_val_shift = 1'sb0;
 		core_mul_row_sel = 1'b0;
 		core_mul_en = 1'b0;
@@ -553,57 +650,70 @@ module tiny_nn_top (
 		core_mul_add_op_b_en = 1'b0;
 		core_accumulate_mode_0_en = 1'sb0;
 		core_accumulate_mode_1_en = 1'sb0;
+		core_accumulate_mode_2_en = 1'sb0;
 		core_accumulate_loopback = 1'b0;
 		core_accumulate_out_relu = 1'b0;
 		core_accumulate_level_0_en = 1'b0;
 		case (state_q)
-			4'h0:
-				case (data_i[15:12])
+			5'h00:
+				case (data_i_q[15:12])
 					tiny_nn_pkg_CmdOpConvolve: begin
-						state_d = 4'h1;
+						state_d = 5'h01;
 						param_write_d = 1'sb0;
 						param_write_d[0] = 1'b1;
 					end
 					tiny_nn_pkg_CmdOpAccumulate: begin
-						start_count_d = data_i[7:0];
+						start_count_d = data_i_q[7:0];
 						counter_d = sv2v_cast_C2D44(1'b1);
-						state_d = 4'h4;
-						relu_d = data_i[8];
+						state_d = 5'h04;
+						relu_d = data_i_q[8];
 					end
 					tiny_nn_pkg_CmdOpTest:
-						case (data_i[11:8])
+						case (data_i_q[11:8])
 							4'hf: begin
-								state_d = 4'hf;
+								state_d = 5'h1f;
 								counter_d = 8'd3;
 							end
 							4'h1: begin
-								state_d = 4'hd;
-								counter_d = data_i[7:0];
+								state_d = 5'h1d;
+								counter_d = data_i_q[7:0];
 							end
 							4'h0: begin
-								state_d = 4'he;
+								state_d = 5'h1e;
 								counter_d = 8'd1;
 							end
 							default:
 								;
 						endcase
 					tiny_nn_pkg_CmdOpMulAcc: begin
-						state_d = 4'h7;
-						relu_d = data_i[8];
+						state_d = 5'h07;
+						relu_d = data_i_q[8];
 						phase_d = 1'b0;
 						counter_d = sv2v_cast_C2D44(2'd3);
+					end
+					tiny_nn_pkg_CmdOpFixedMulAcc: begin
+						start_count_d = data_i_q[7:0];
+						counter_d = sv2v_cast_C2D44(2'd2);
+						state_d = 5'h0a;
+						param_write_d[6] = 1'b1;
+					end
+					tiny_nn_pkg_CmdOpMaxPool: begin
+						max_val_d = tiny_nn_pkg_FPNegInf;
+						start_count_d = data_i_q[7:0];
+						counter_d = data_i_q[7:0];
+						state_d = 5'h0d;
 					end
 					default:
 						;
 				endcase
-			4'h1:
+			5'h01:
 				if (param_write_q[ValArraySize - 1]) begin
 					param_write_d = 1'sb0;
-					state_d = 4'h2;
+					state_d = 5'h02;
 				end
 				else
 					param_write_d = {param_write_q[ValArraySize - 2:0], 1'b0};
-			4'h2, 4'h3: begin
+			5'h02, 5'h03: begin
 				phase_d = ~phase_q;
 				convolve_run = 1'b1;
 				core_val_shift[0] = ~phase_q;
@@ -612,22 +722,22 @@ module tiny_nn_top (
 				core_mul_en = 1'b1;
 				core_accumulate_mode_0_en[0] = 1'b1;
 				core_accumulate_mode_0_en[1] = phase_q;
-				if (state_q == 4'h2) begin
-					if (data_i == tiny_nn_pkg_FPStdNaN) begin
-						state_d = 4'h3;
+				if (state_q == 5'h02) begin
+					if (data_i_q == tiny_nn_pkg_FPStdNaN) begin
+						state_d = 5'h03;
 						counter_d = 8'd4;
 					end
 				end
 				else if (counter_q != {8 {1'sb0}})
 					counter_d = counter_q - 1'b1;
 				else
-					state_d = 4'h0;
+					state_d = 5'h00;
 			end
-			4'h4: begin
+			5'h04: begin
 				core_accumulate_level_0_en = 1'b1;
-				state_d = 4'h5;
+				state_d = 5'h05;
 			end
-			4'h5: begin
+			5'h05: begin
 				core_accumulate_mode_1_en[0] = 1'b1;
 				core_accumulate_out_relu = relu_q;
 				core_mul_add_op_b_en = 1'b1;
@@ -641,26 +751,26 @@ module tiny_nn_top (
 						core_mul_add_op_a_en = 1'b1;
 					core_accumulate_loopback = 1'b1;
 					counter_d = counter_q - 1'b1;
-					if (data_i == tiny_nn_pkg_FPStdNaN) begin
-						state_d = 4'h6;
+					if (data_i_q == tiny_nn_pkg_FPStdNaN) begin
+						state_d = 5'h06;
 						counter_d = 8'd2;
 					end
 				end
 			end
-			4'h6: begin
+			5'h06: begin
 				core_accumulate_out_relu = relu_q;
 				if (counter_q == 8'd2)
 					core_accumulate_mode_1_en[1] = 1'b1;
 				else if (counter_q == {8 {1'sb0}})
-					state_d = 4'h0;
+					state_d = 5'h00;
 				counter_d = counter_q - 1'b1;
 			end
-			4'h7: begin
+			5'h07: begin
 				core_accumulate_level_0_en = 1'b1;
 				core_mul_add_op_a_en = 1'b1;
-				state_d = 4'h8;
+				state_d = 5'h08;
 			end
-			4'h8: begin
+			5'h08: begin
 				phase_d = ~phase_q;
 				core_mul_row_sel = 1'b1;
 				if (phase_q) begin
@@ -675,13 +785,13 @@ module tiny_nn_top (
 					core_mul_en = counter_q != sv2v_cast_C2D44(2'd3);
 					if (counter_q != {8 {1'sb0}})
 						counter_d = counter_q - 1'b1;
-					if (data_i == tiny_nn_pkg_FPStdNaN) begin
-						state_d = 4'h9;
+					if (data_i_q == tiny_nn_pkg_FPStdNaN) begin
+						state_d = 5'h09;
 						counter_d = 8'd3;
 					end
 				end
 			end
-			4'h9: begin
+			5'h09: begin
 				if (counter_q == 8'd3) begin
 					core_accumulate_loopback = 1'b1;
 					core_accumulate_mode_1_en[0] = 1'b1;
@@ -691,26 +801,76 @@ module tiny_nn_top (
 					core_accumulate_out_relu = relu_q;
 				end
 				else if (counter_q == {8 {1'sb0}})
-					state_d = 4'h0;
+					state_d = 5'h00;
 				counter_d = counter_q - 1'b1;
 			end
-			4'hf:
-				if (data_i[15:8] == 8'hff) begin
+			5'h0a: begin
+				param_write_d[6] = 1'b0;
+				state_d = 5'h0b;
+			end
+			5'h0b: begin
+				core_mul_en = 1'b1;
+				core_accumulate_mode_2_en[0] = 1'b1;
+				core_val_shift[0] = 1'b1;
+				core_mul_row_sel = 1'b1;
+				if (counter_q == 8'd0)
+					counter_d = start_count_q;
+				else begin
+					core_accumulate_loopback = 1'b1;
+					counter_d = counter_q - 1'b1;
+					if (counter_q == sv2v_cast_C2D44(1'b1)) begin
+						core_accumulate_mode_2_en[1] = 1'b1;
+						core_mul_add_op_a_en = 1'b1;
+					end
+					else if (counter_q == sv2v_cast_C2D44(2'd2)) begin
+						if (data_i_q == tiny_nn_pkg_FPStdNaN) begin
+							counter_d = sv2v_cast_C2D44(2'd3);
+							state_d = 5'h0c;
+						end
+					end
+				end
+			end
+			5'h0c: begin
+				if (counter_q == 8'd2) begin
+					core_mul_row_sel = 1'b1;
+					core_accumulate_mode_2_en[1] = 1'b1;
+					core_accumulate_loopback = 1'b1;
+				end
+				else if (counter_q == {8 {1'sb0}})
+					state_d = 5'h00;
+				counter_d = counter_q - 1'b1;
+			end
+			5'h0d: begin
+				if (data_i_q == tiny_nn_pkg_FPStdNaN)
+					state_d = 5'h0e;
+				if (counter_q == 8'd0) begin
+					counter_d = start_count_q;
+					max_val_d = tiny_nn_pkg_FPNegInf;
+				end
+				else begin
+					counter_d = counter_q - 1'b1;
+					if (data_i_q_is_greater)
+						max_val_d = data_i_q;
+				end
+			end
+			5'h0e: state_d = 5'h00;
+			5'h1f:
+				if (data_i_q[15:8] == 8'hff) begin
 					if (counter_q == 0)
 						counter_d = 8'd3;
 					else
 						counter_d = counter_q - 1'b1;
 				end
 				else
-					state_d = 4'h0;
-			4'he:
-				if (data_i[15:8] == 8'hf0)
+					state_d = 5'h00;
+			5'h1e:
+				if (data_i_q[15:8] == 8'hf0)
 					counter_d = counter_q - 1'b1;
 				else
-					state_d = 4'h0;
-			4'hd:
+					state_d = 5'h00;
+			5'h1d:
 				if (counter_q == {8 {1'sb0}})
-					state_d = 4'h0;
+					state_d = 5'h00;
 				else
 					counter_d = counter_q - 1'b1;
 			default:
@@ -719,7 +879,7 @@ module tiny_nn_top (
 	end
 	always @(posedge clk_i or negedge rst_ni)
 		if (!rst_ni)
-			state_q <= 4'h0;
+			state_q <= 5'h00;
 		else
 			state_q <= state_d;
 	always @(posedge clk_i) begin
@@ -728,6 +888,7 @@ module tiny_nn_top (
 		phase_q <= phase_d;
 		param_write_q <= param_write_d;
 		relu_q <= relu_d;
+		max_val_q <= max_val_d;
 	end
 	function automatic [15:0] sv2v_cast_0825D;
 		input reg [15:0] inp;
@@ -742,23 +903,30 @@ module tiny_nn_top (
 	) u_core(
 		.clk_i(clk_i),
 		.rst_ni(rst_ni),
-		.val_i(sv2v_cast_0825D(data_i)),
+		.val_i(sv2v_cast_0825D(data_i_q)),
 		.val_shift_i(core_val_shift),
-		.param_i(sv2v_cast_0825D(data_i)),
+		.param_i(sv2v_cast_0825D(data_i_q)),
 		.param_write_i(param_write_q),
 		.mul_row_sel_i(core_mul_row_sel),
 		.mul_en_i(core_mul_en),
 		.accumulate_loopback_i(core_accumulate_loopback),
 		.accumulate_out_relu_i(core_accumulate_out_relu),
 		.mul_add_op_a_din_i(sv2v_uu_u_core_ext_mul_add_op_a_din_i_0),
-		.mul_add_op_b_din_i(sv2v_cast_0825D(data_i)),
+		.mul_add_op_b_din_i(sv2v_cast_0825D(data_i_q)),
 		.mul_add_op_a_en_i(core_mul_add_op_a_en),
 		.mul_add_op_b_en_i(core_mul_add_op_b_en),
-		.accumulate_level_0_din_i(sv2v_cast_0825D(data_i)),
+		.accumulate_level_0_din_i(sv2v_cast_0825D(data_i_q)),
 		.accumulate_level_0_en_i(core_accumulate_level_0_en),
 		.accumulate_mode_0_en_i(core_accumulate_mode_0_en),
 		.accumulate_mode_1_en_i(core_accumulate_mode_1_en),
+		.accumulate_mode_2_en_i(core_accumulate_mode_2_en),
 		.accumulate_o(core_accumulate_result)
+	);
+	fp_cmp u_fp_cmp(
+		.op_a_i(data_i_q),
+		.op_b_i(max_val_q),
+		.op_a_greater_o(data_i_q_is_greater),
+		.invalid_nan_o()
 	);
 	reg [7:0] test_out;
 	always @(*) begin
@@ -766,15 +934,15 @@ module tiny_nn_top (
 			;
 		test_out = 1'sb0;
 		case (state_q)
-			4'hf:
+			5'h1f:
 				case (counter_q)
 					8'd3: test_out = 8'h54;
 					8'd2: test_out = 8'h2d;
 					8'd0, 8'd1: test_out = 8'h4e;
 					default: test_out = 1'sb0;
 				endcase
-			4'he: test_out = (counter_q[0] ? 8'b10101010 : 8'b01010101);
-			4'hd: test_out = counter_q;
+			5'h1e: test_out = (counter_q[0] ? 8'b10101010 : 8'b01010101);
+			5'h1d: test_out = counter_q;
 			default:
 				;
 		endcase
@@ -782,20 +950,41 @@ module tiny_nn_top (
 	always @(*) begin
 		if (_sv2v_0)
 			;
-		data_o = 1'sb1;
+		data_o_d = 1'sb1;
+		max_val_skid_d = max_val_skid_q;
 		case (state_q)
-			4'h2, 4'h3: data_o = (phase_q ? core_accumulate_result[15:8] : core_accumulate_result[7:0]);
-			4'h5:
+			5'h02, 5'h03: data_o_d = (phase_q ? core_accumulate_result[15:8] : core_accumulate_result[7:0]);
+			5'h05, 5'h0b:
 				if (counter_q == start_count_q)
-					data_o = core_accumulate_result[7:0];
+					data_o_d = core_accumulate_result[7:0];
 				else
-					data_o = core_accumulate_result[15:8];
-			4'h6: data_o = (counter_q[0] ? core_accumulate_result[7:0] : core_accumulate_result[15:8]);
-			4'h9: data_o = (counter_q[0] ? core_accumulate_result[7:0] : core_accumulate_result[15:8]);
-			4'hf, 4'he, 4'hd: data_o = test_out;
+					data_o_d = core_accumulate_result[15:8];
+			5'h06, 5'h09, 5'h0c: data_o_d = (counter_q[0] ? core_accumulate_result[7:0] : core_accumulate_result[15:8]);
+			5'h1f, 5'h1e, 5'h1d: data_o_d = test_out;
+			5'h0d:
+				if (counter_q == {8 {1'sb0}}) begin
+					if (data_i_q_is_greater) begin
+						data_o_d = data_i_q[7:0];
+						max_val_skid_d = data_i_q[15:8];
+					end
+					else begin
+						data_o_d = max_val_q[7:0];
+						max_val_skid_d = max_val_q[15:8];
+					end
+				end
+				else
+					data_o_d = max_val_skid_q;
+			5'h0e: data_o_d = max_val_skid_q;
 			default:
 				;
 		endcase
 	end
+	always @(posedge clk_i or negedge rst_ni)
+		if (!rst_ni)
+			data_o_q <= 1'sb1;
+		else
+			data_o_q <= data_o_d;
+	always @(posedge clk_i) max_val_skid_q <= max_val_skid_d;
+	assign data_o = data_o_q;
 	initial _sv2v_0 = 0;
 endmodule
