@@ -66,8 +66,12 @@ async def test_ascii(dut):
     await run_test(dut, "test_ascii.hex", "test_ascii_expected.hex")
 
 @cocotb.test()
-async def test_convolve(dut):
-    await run_test(dut, "test_convolve.hex", "test_convolve_expected.hex")
+async def test_convolve_mnist_0(dut):
+    await run_test(dut, "test_convolve_mnist_0.hex", "test_convolve_mnist_0_expected.hex")
+
+@cocotb.test()
+async def test_convolve_mnist_1(dut):
+    await run_test(dut, "test_convolve_mnist_1.hex", "test_convolve_mnist_1_expected.hex")
 
 @cocotb.test()
 async def test_count(dut):
@@ -80,6 +84,42 @@ async def test_mul_acc_1(dut):
 @cocotb.test()
 async def test_mul_acc_2(dut):
     await run_test(dut, "test_mul_acc_2.hex", "test_mul_acc_2_expected.hex")
+
+@cocotb.test()
+async def test_simple_fixed_mul_acc(dut):
+    await run_test(dut, "test_simple_fixed_mul_acc.hex", "test_simple_fixed_mul_acc_expected.hex")
+
+@cocotb.test()
+async def test_simple_fixed_mul_acc_2(dut):
+    await run_test(dut, "test_simple_fixed_mul_acc_2.hex", "test_simple_fixed_mul_acc_2_expected.hex")
+
+@cocotb.test()
+async def test_random_fixed_mul_acc_1(dut):
+    await run_test(dut, "test_random_fixed_mul_acc_1.hex", "test_random_fixed_mul_acc_1_expected.hex")
+
+@cocotb.test()
+async def test_random_fixed_mul_acc_2(dut):
+    await run_test(dut, "test_random_fixed_mul_acc_2.hex", "test_random_fixed_mul_acc_2_expected.hex")
+
+@cocotb.test()
+async def test_random_fixed_mul_acc_3(dut):
+    await run_test(dut, "test_random_fixed_mul_acc_3.hex", "test_random_fixed_mul_acc_3_expected.hex")
+
+@cocotb.test()
+async def test_random_fixed_mul_acc_4(dut):
+    await run_test(dut, "test_random_fixed_mul_acc_4.hex", "test_random_fixed_mul_acc_4_expected.hex")
+
+@cocotb.test()
+async def test_random_max_pool_1(dut):
+    await run_test(dut, "test_random_max_pool_1.hex", "test_random_max_pool_1_expected.hex")
+
+@cocotb.test()
+async def test_random_max_pool_2(dut):
+    await run_test(dut, "test_random_max_pool_2.hex", "test_random_max_pool_2_expected.hex")
+
+@cocotb.test()
+async def test_random_max_pool_3(dut):
+    await run_test(dut, "test_random_max_pool_3.hex", "test_random_max_pool_3_expected.hex")
 
 @cocotb.test()
 async def test_pulse(dut):
